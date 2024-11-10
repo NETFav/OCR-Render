@@ -191,3 +191,6 @@ def classify_document(text):
 
 if __name__ == '__main__':
     app.run(debug=True)
+
+# Enable CORS for all domains (or specify allowed domains)
+CORS(app, origins=["*"])  # Allows all origins (for testing), you can specify your domain if needed
