@@ -10,8 +10,8 @@ import re
 
 app = Flask(__name__)
 
-# Specify the path to Tesseract executable for Windows
-pytesseract.pytesseract.tesseract_cmd = r'tesseract.exe'
+# Specify the path to the Tesseract executable
+pytesseract.pytesseract.tesseract_cmd = r'/usr/bin/tesseract'
 
 UPLOAD_FOLDER = 'uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
