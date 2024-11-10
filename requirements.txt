@@ -13,5 +13,3 @@ pytesseract==0.3.13
 Werkzeug==3.0.4
 requests==2.26.0
 gunicorn==20.1.0
-pytesseract==0.3.13
-tesseract-ocr
