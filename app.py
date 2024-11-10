@@ -20,7 +20,7 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 
-@app.route('/upload', methods=['POST'])
+@app.route('/uploads', methods=['POST'])
 def upload_file():
     if 'file' not in request.files:
         return jsonify({"error": "No file part"}), 400
