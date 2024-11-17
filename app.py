@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify
 import pytesseract
 from PIL import Image
 import cv2
@@ -8,8 +8,7 @@ import re
 
 app = Flask(__name__)
 
-# Specify the path to the Tesseract executable
-# Make sure 'tesseract' is accessible on the server or replace with the exact path if needed
+# Specify the path to the Tesseract executable (make sure this path is correct)
 pytesseract.pytesseract.tesseract_cmd = r'tesseract'
 
 UPLOAD_FOLDER = 'uploads'
@@ -34,7 +33,7 @@ def upload_file():
         file.save(file_path)
 
         try:
-            # Apply improved preprocessing
+            # Improved preprocessing and OCR processing
             processed_image_path, processed_image_no_boxes_path = improved_preprocess_image(file_path)
 
             # Use pytesseract to extract text from the image without bounding boxes
@@ -48,72 +47,61 @@ def upload_file():
             return jsonify({"document_type": document_type, "extracted_text": extracted_text})
 
         except Exception as e:
-            # Log and return any errors encountered
-            error_message = f"Internal server error: {str(e)}"
-            print(error_message)
-            return jsonify({"error": error_message}), 500
+            return jsonify({"error": f"Error processing image: {str(e)}"}), 500
 
 def improved_preprocess_image(image_path):
-    try:
-        # Load the image using OpenCV
-        image = cv2.imread(image_path)
+    # Load the image using OpenCV
+    image = cv2.imread(image_path)
 
-        # Convert to grayscale
-        gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    # Convert to grayscale
+    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-        # Denoise the image
-        denoised_image = cv2.fastNlMeansDenoising(gray_image, None, 30, 7, 21)
+    # Denoise the image
+    denoised_image = cv2.fastNlMeansDenoising(gray_image, None, 30, 7, 21)
 
-        # Detect edges using Canny edge detection
-        edges = cv2.Canny(denoised_image, 50, 150)
+    # Detect edges using Canny edge detection
+    edges = cv2.Canny(denoised_image, 50, 150)
 
-        # Detect lines using Hough Line Transform
-        lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=100, minLineLength=100, maxLineGap=10)
+    # Detect lines using Hough Line Transform
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=100, minLineLength=100, maxLineGap=10)
 
-        if lines is not None:
-            # Process lines to find document corners and apply perspective correction
-            processed_image = process_lines_and_warp(image, lines)
-        else:
-            # If no lines are detected, use the original image
-            processed_image = denoised_image
+    if lines is not None:
+        # Process lines if needed
+        processed_image = denoised_image
+    else:
+        # If no lines are detected, use the original image
+        processed_image = denoised_image
 
-        # Sharpen the image
-        kernel_sharpen = np.array([[-1,-1,-1], [-1,9,-1], [-1,-1,-1]])
-        sharpened_image = cv2.filter2D(processed_image, -1, kernel_sharpen)
+    # Apply Otsu's thresholding after denoising
+    _, otsu_thresh_image = cv2.threshold(processed_image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-        # Apply Otsu's thresholding after denoising
-        _, otsu_thresh_image = cv2.threshold(sharpened_image, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # Use adaptive thresholding for fine detail extraction
+    adaptive_thresh_image = cv2.adaptiveThreshold(otsu_thresh_image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                                  cv2.THRESH_BINARY, 11, 2)
 
-        # Use adaptive thresholding for fine detail extraction
-        adaptive_thresh_image = cv2.adaptiveThreshold(otsu_thresh_image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                                      cv2.THRESH_BINARY, 11, 2)
+    # Apply morphological operations to clean up noise and isolate text
+    kernel = np.ones((2, 2), np.uint8)
+    morph_image = cv2.morphologyEx(adaptive_thresh_image, cv2.MORPH_CLOSE, kernel)
 
-        # Apply morphological operations to clean up noise and isolate text
-        kernel = np.ones((2, 2), np.uint8)
-        morph_image = cv2.morphologyEx(adaptive_thresh_image, cv2.MORPH_CLOSE, kernel)
+    # Save the processed image without bounding boxes for text extraction
+    processed_image_no_boxes_path = os.path.join(app.config['UPLOAD_FOLDER'], 'processed_image_no_boxes.png')
+    cv2.imwrite(processed_image_no_boxes_path, morph_image)
 
-        # Save the processed image without bounding boxes for text extraction
-        processed_image_no_boxes_path = os.path.join(app.config['UPLOAD_FOLDER'], 'processed_image_no_boxes.png')
-        cv2.imwrite(processed_image_no_boxes_path, morph_image)
+    # Convert the image to BGR format to draw colored bounding boxes
+    morph_image_bgr = cv2.cvtColor(morph_image, cv2.COLOR_GRAY2BGR)
 
-        # Convert the image to BGR format to draw colored bounding boxes
-        morph_image_bgr = cv2.cvtColor(morph_image, cv2.COLOR_GRAY2BGR)
+    # Detect words and draw bounding boxes
+    d = pytesseract.image_to_data(morph_image, output_type=pytesseract.Output.DICT)
+    n_boxes = len(d['level'])
+    for i in range(n_boxes):
+        (x, y, w, h) = (d['left'][i], d['top'][i], d['width'][i], d['height'][i])
+        cv2.rectangle(morph_image_bgr, (x, y), (x + w, y + h), (0, 0, 255), 2)  # Red color (BGR format)
 
-        # Detect words and draw bounding boxes
-        d = pytesseract.image_to_data(morph_image, output_type=pytesseract.Output.DICT)
-        n_boxes = len(d['level'])
-        for i in range(n_boxes):
-            (x, y, w, h) = (d['left'][i], d['top'][i], d['width'][i], d['height'][i])
-            cv2.rectangle(morph_image_bgr, (x, y), (x + w, y + h), (0, 0, 255), 2)  # Red color (BGR format)
+    # Save the processed image with bounding boxes for visualization
+    processed_image_path = os.path.join(app.config['UPLOAD_FOLDER'], 'processed_image_with_boxes.png')
+    cv2.imwrite(processed_image_path, morph_image_bgr)
 
-        # Save the processed image with bounding boxes for visualization
-        processed_image_path = os.path.join(app.config['UPLOAD_FOLDER'], 'processed_image_with_boxes.png')
-        cv2.imwrite(processed_image_path, morph_image_bgr)
-
-        return processed_image_path, processed_image_no_boxes_path
-
-    except Exception as e:
-        raise RuntimeError(f"Error processing image: {str(e)}")
+    return processed_image_path, processed_image_no_boxes_path
 
 def classify_document(text):
     # Convert text to lowercase for easier comparison
