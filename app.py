@@ -5,8 +5,10 @@ import cv2
 import numpy as np
 import os
 import re
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app)
 
 # Use environment variable or set the default Linux path
 pytesseract.pytesseract.tesseract_cmd = os.getenv('TESSERACT_PATH', '/usr/bin/tesseract')
